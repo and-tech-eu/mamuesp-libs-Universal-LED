@@ -1,0 +1,21 @@
+author: Manfred Müller-Späth <fms1961@gmail.com>
+type: lib
+description: RGB LEDs driver
+version: 1.0
+
+sources:
+  - src
+includes:
+  - include
+
+tags:
+  - js
+  - hw
+  - rgb-leds
+  - docs:drivers:RGB-LEDs
+
+manifest_version: 2017-09-29
+
+# Temporary, while root manifest change propagates (2018/03/29).
+libs:
+  - origin: https://github.com/mongoose-os-libs/core
