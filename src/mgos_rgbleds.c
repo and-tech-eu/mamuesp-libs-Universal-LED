@@ -18,13 +18,14 @@
 
 #include "mgos_rgbleds.h"
 
-struct mgos_rgbleds *mgos_rgbleds_create(int pin, int num_pixels,
-                                           enum mgos_rgbleds_order order) {
+mgos_rgbleds *mgos_rgbleds_create(int pin, int num_pixels, mgos_rgbleds_order order, rgbleds_callback callback)
+{
   mgos_gpio_set_mode(pin, MGOS_GPIO_MODE_OUTPUT);
   /* Keep in reset */
   mgos_gpio_write(pin, 0);
 
-  struct mgos_rgbleds *np = calloc(1, sizeof(*np));
+  mgos_rgbleds *np = calloc(1, sizeof(*np));
+  np->callback = callback;
   np->pin = pin;
   np->num_pixels = num_pixels;
   np->order = order;
@@ -37,12 +38,20 @@ struct mgos_rgbleds *mgos_rgbleds_create(int pin, int num_pixels,
   np->counter = 0;
   np->timer_id = 0;
   np->single_mode = false;
-  np->shift = num_pixels;
+  np->col_pos = 0;
+  np->pix_pos = 0;
+
+  np->T0H = mgos_sys_config_get_rgbleds_timing_T0H();
+  np->T1H = mgos_sys_config_get_rgbleds_timing_T1H();
+  np->T0L = mgos_sys_config_get_rgbleds_timing_T0L();
+  np->T1L = mgos_sys_config_get_rgbleds_timing_T1L();
+  np->RES = mgos_sys_config_get_rgbleds_timing_RES();
+
   mgos_rgbleds_clear(np);
   return np;
 }
 
-void mgos_rgbleds_set(struct mgos_rgbleds *np, int i, int r, int g, int b) {
+void mgos_rgbleds_set(mgos_rgbleds *np, int i, int r, int g, int b) {
   uint8_t *p = np->data + i * NUM_CHANNELS;
   switch (np->order) {
     case MGOS_RGBLEDS_ORDER_RGB:
@@ -69,7 +78,7 @@ void mgos_rgbleds_set(struct mgos_rgbleds *np, int i, int r, int g, int b) {
   }
 }
 
-void mgos_rgbleds_get(struct mgos_rgbleds *np, int i, char *out, int len) {
+void mgos_rgbleds_get(mgos_rgbleds *np, int i, char *out, int len) {
   uint8_t *p = np->data + i * NUM_CHANNELS;
   int r,g,b;
   switch (np->order) {
@@ -103,32 +112,31 @@ void mgos_rgbleds_get(struct mgos_rgbleds *np, int i, char *out, int len) {
   }
 }
 
-void mgos_rgbleds_clear(struct mgos_rgbleds *np)
+void mgos_rgbleds_clear(mgos_rgbleds *np)
 {
   memset(np->data, 0, np->num_pixels * NUM_CHANNELS);
 }
 
-void mgos_rgbleds_show(struct mgos_rgbleds *np) {
+void mgos_rgbleds_show(mgos_rgbleds *np) {
   mgos_gpio_write(np->pin, 0);
-  mgos_usleep(60);
-  mgos_bitbang_write_bits(np->pin, MGOS_DELAY_100NSEC, 3, 8, 8, 6, np->data,
-                          np->num_pixels * NUM_CHANNELS);
+  mgos_usleep(np->RES);
+  mgos_bitbang_write_bits(np->pin, MGOS_DELAY_100NSEC, np->T0H, np->T0L, np->T1H, np->T1L, np->data, np->num_pixels * NUM_CHANNELS);
   mgos_gpio_write(np->pin, 0);
-  mgos_usleep(60);
+  mgos_usleep(np->RES);
   mgos_gpio_write(np->pin, 1);
 }
 
-void mgos_rgbleds_show_fast(struct mgos_rgbleds *np)
+void mgos_rgbleds_show_fast(mgos_rgbleds *np)
 {
   mgos_gpio_write(np->pin, 0);
-  mgos_usleep(60);
-  mgos_bitbang_write_bits(np->pin, MGOS_DELAY_100NSEC, 3, 8, 8, 6, np->data, (np->counter + 1) * NUM_CHANNELS);
+  mgos_usleep(np->RES);
+  mgos_bitbang_write_bits(np->pin, MGOS_DELAY_100NSEC, np->T0H, np->T0L, np->T1H, np->T1L, np->data, np->counter * NUM_CHANNELS);
   mgos_gpio_write(np->pin, 0);
-  mgos_usleep(60);
+  mgos_usleep(np->RES);
   mgos_gpio_write(np->pin, 1);
 }
 
-void mgos_rgbleds_free(struct mgos_rgbleds *np)
+void mgos_rgbleds_free(mgos_rgbleds *np)
 {
   free(np->data);
   free(np->color_shadows);
@@ -136,7 +144,7 @@ void mgos_rgbleds_free(struct mgos_rgbleds *np)
   free(np);
 }
 
-void mgos_rgbleds_prep_colors(struct mgos_rgbleds *np, int pix, uint8_t r, uint8_t g, uint8_t b, int col_num)
+void mgos_rgbleds_prep_colors(mgos_rgbleds *np, int pix, uint8_t r, uint8_t g, uint8_t b, int col_num)
 {
   if (np->color_values != NULL) {
     uint8_t *p_color = np->color_values + (pix * NUM_CHANNELS);
@@ -147,53 +155,16 @@ void mgos_rgbleds_prep_colors(struct mgos_rgbleds *np, int pix, uint8_t r, uint8
   np->col_count = col_num;
 }
 
-void mgos_rgbleds_process(void *param)
-{
-  struct mgos_rgbleds *np = (struct mgos_rgbleds *) param;
-  np->counter = np->counter >= np->col_count ? 0 : np->counter;
-  if (np->counter == 0 && np->single_mode) {
-    mgos_rgbleds_clear(np);
-  }
-  
-  int pix = np->counter;
-  int last = pix - 1;
-  
-  //uint8_t *p_pix = np->data + (pix * NUM_CHANNELS);
-  uint8_t *p_pix_color = np->color_values + (pix * NUM_CHANNELS);
-  // LOG(LL_INFO, ("mgos_rgbleds_process: pix - <%d>, lst - <%d>, counter - <%d>", pix, last, np->counter));
-
-  if (np->single_mode) {
-    uint8_t *p_pix_shadow = np->color_shadows + (pix * NUM_CHANNELS);
-    if (last > -1) {
-      uint8_t *p_last_shadow = np->color_shadows + (last * NUM_CHANNELS);
-      // LOG(LL_INFO, ("mgos_rgbleds_process: set (last) - R - <%d>, G - <%d>, B - <%d>", p_last_shadow[0], p_last_shadow[1], p_last_shadow[2]));
-      mgos_rgbleds_set(np, last, p_last_shadow[0], p_last_shadow[1], p_last_shadow[2]);
-    }
-    memcpy(p_pix_shadow, p_pix_color, NUM_CHANNELS);
-  } else {
-    int runner = 0, out = 0;
-    for (runner = 0; runner < np->num_pixels; runner++) {
-      out = (runner + pix) % np->num_pixels;
-      p_pix_color = np->color_values + (runner * NUM_CHANNELS);
-      mgos_rgbleds_set(np, out, p_pix_color[0], p_pix_color[1], p_pix_color[2]);
-    }
-  }
-
-  // LOG(LL_INFO, ("mgos_rgbleds_process: set (pix) - R - <%d>, G - <%d>, B - <%d>", p_pix_color[0], p_pix_color[1], p_pix_color[2]));
-//  mgos_rgbleds_set(np, pix, p_pix_color[0], p_pix_color[1], p_pix_color[2]);
-  mgos_rgbleds_show(np);
-  np->counter++;
-  np->shift--;
-}
-
-void mgos_rgbleds_start(struct mgos_rgbleds *np, int timeout) {
+void mgos_rgbleds_start(mgos_rgbleds *np, int timeout) {
   if (np->timer_id == 0) {
-    np->shift = 0;
-    np->timer_id = mgos_set_timer(timeout, MGOS_TIMER_REPEAT, mgos_rgbleds_process, np);
+    np->col_pos = 0;
+    if (np->callback != NULL) {
+      np->timer_id = mgos_set_timer(timeout, MGOS_TIMER_REPEAT, np->callback, np);
+    }
   }
 }
 
-void mgos_rgbleds_stop(struct mgos_rgbleds *np)
+void mgos_rgbleds_stop(mgos_rgbleds *np)
 {
   if (np->timer_id != 0) {
     mgos_clear_timer(np->timer_id);

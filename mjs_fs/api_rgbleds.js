@@ -21,7 +21,7 @@ let RGB_LEDs = {
   // ```
   create: function(pin, numPixels, order) {
     return Object.create({
-      _i: RGB_LEDs._c(pin, numPixels, order),
+      _i: RGB_LEDs._c(pin, numPixels, order, null),
 
       setPixel: RGB_LEDs.setPixel,
       getPixel: RGB_LEDs.getPixel,
@@ -29,7 +29,8 @@ let RGB_LEDs = {
       show: RGB_LEDs.show,
       prepCols: RGB_LEDs.prepCols,
       start: RGB_LEDs.start,
-      stop: RGB_LEDs.stop
+      stop: RGB_LEDs.stop,
+      getInstance: RGB_LEDs.getInstance
     });
   },
 
@@ -74,7 +75,11 @@ let RGB_LEDs = {
     RGB_LEDs._stop(this._i);
    },
 
-  _c: ffi('void *mgos_rgbleds_create(int, int, int)'),
+  getInstance: function () {
+    return this._i;
+  },
+
+  _c: ffi('void *mgos_rgbleds_create(int, int, int, void *)'),
   _set: ffi('void mgos_rgbleds_set(void *, int, int, int, int)'),
   _get: ffi('void mgos_rgbleds_get(void *, int, char *, int)'),
   _clear: ffi('void mgos_rgbleds_clear(void *)'),
