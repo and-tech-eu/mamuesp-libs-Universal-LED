@@ -5,12 +5,26 @@ version: 1.0
 
 config_schema:
   - ["rgbleds", "o", {title: "Settings for RGB LED handling"}]
-  - ["rgbleds.timing", "o", {title: "Settings for RGB LED timing"}]
-  - ["rgbleds.timing.T0H", "d", 4, {title: "Settings for 0-code HIGH level time (in 100 ns)"}]
-  - ["rgbleds.timing.T1H", "d", 8, {title: "Settings for 1code HIGH level time (in 100 ns)"}]
-  - ["rgbleds.timing.T0L", "d", 9, {title: "Settings for 0-code LOW level time (in 100 ns)"}]
-  - ["rgbleds.timing.T1L", "d", 5, {title: "Settings for 1code LOW level time (in 100 ns)"}]
-  - ["rgbleds.timing.RES", "d", 65, {title: "Settings for reset time (in us)"}]
+  - ["rgbleds.pin", "i", 19, {title: "The GPIO pin for Neopixel serial output"}]
+  - ["rgbleds.color_file", "s", "Logo-small.bmp", {title: "File name which should be used as source (BMP)"}]
+  - ["rgbleds.color_count", "i", 64, {title: "Amount of colors (mostly the same as pixels)"}]
+  - ["rgbleds.invert_colors", "b", false, {title: "Tells whether the colors should be inverted"}]
+  - ["rgbleds.num_pixels", "i", 64, {title: "Amount of pixels (aka LEDs - mostly the same as colors)"}]
+  - ["rgbleds.num_channels", "i", 3, {title: "Amount of channels of the color (RGB -> 3, RGBW - > 4)"}]
+  - ["rgbleds.panel_width", "i", 8, {title: "If a panel is used: width of the panel in LEDs"}]
+  - ["rgbleds.panel_height", "i", 8, {title: "If a panel is used: height of the panel in LEDs"}]
+  - ["rgbleds.dim_all", "d", 0.35, {title: "Dimming of the LED over all colors"}]
+  - ["rgbleds.dim_red", "d", 1.0, {title: "Dimming of the LED over RED"}]
+  - ["rgbleds.dim_green", "d", 0.9, {title: "Dimming of the LED over GREEN"}]
+  - ["rgbleds.dim_blue", "d", 0.8, {title: "Dimming of the LED over BLUE"}]
+  - ["rgbleds.single_mode", "b", false, {title: "For animations: light up only one (the current) pixel"}]
+  - ["rgbleds.color_order", "i", 1, {title: "The order of the RGB channels tp be pushed to the LEDs"}]
+  - ["rgbleds.led_type", "i", 1, {title: "The type of the driven LEDs (WS2812, Neopixel, APA102 ...)"}]
+  - ["rgbleds.first_zero", "b", false, {title: "Set the current (first) pixel always to zero (dark)"}]
+  - ["rgbleds.timeout", "i", 1200, {title: "Set the timeout for animations"}]
+  - ["rgbleds.toggle_odd", "b", false, {title: "Toggle the count direction on off lines (for pads)"}]
+  - ["rgbleds.rotate_col", "i", 180, {title: "Rotate the image content to adjust the display orientation"}]
+  - ["rgbleds.rotate_out", "i", 90, {title: "Rotate the image content to adjust the display orientation"}]
 
 sources:
   - src
@@ -28,4 +42,7 @@ manifest_version: 2017-09-29
 
 # Temporary, while root manifest change propagates (2018/03/29).
 libs:
+
+  - origin: /Volumes/FastSSD/Develop/HeyDo/heydo-mqtt/Mongoose-OS/heydo-libs/neopixel
+  - origin: https://github.com/mongoose-os-libs/spi
   - origin: https://github.com/mongoose-os-libs/core
