@@ -39,6 +39,7 @@ static int rgb_to_ansi(int red, int grn, int blu)
     return colIdx;
 }
 */
+
 mgos_rgbleds* mgos_rgbleds_get_global()
 {
     if (global_leds == NULL) {
@@ -53,37 +54,38 @@ mgos_rgbleds* mgos_rgbleds_create()
     int pin = mgos_sys_config_get_rgbleds_pin();
 
     leds->color_file = (char*)mgos_sys_config_get_rgbleds_color_file();
-    leds->color_count = mgos_sys_config_get_rgbleds_color_count();
+    leds->gamma_red = mgos_sys_config_get_rgbleds_gamma_red();
+    leds->gamma_green = mgos_sys_config_get_rgbleds_gamma_green();
+    leds->gamma_blue = mgos_sys_config_get_rgbleds_gamma_blue();
     leds->color_order = mgos_sys_config_get_rgbleds_color_order();
-    leds->toggle_odd = mgos_sys_config_get_rgbleds_toggle_odd();
     leds->rotate_col = mgos_sys_config_get_rgbleds_rotate_col();
     leds->rotate_out = mgos_sys_config_get_rgbleds_rotate_out();
-    leds->num_pixels = mgos_sys_config_get_rgbleds_num_pixels();
     leds->num_channels = mgos_sys_config_get_rgbleds_num_channels();
+    leds->pic_channels = mgos_sys_config_get_rgbleds_pic_channels();
     leds->panel_width = mgos_sys_config_get_rgbleds_panel_width();
     leds->panel_height = mgos_sys_config_get_rgbleds_panel_height();
     leds->dim_all = mgos_sys_config_get_rgbleds_dim_all();
-    leds->dim_red = mgos_sys_config_get_rgbleds_dim_red();
-    leds->dim_green = mgos_sys_config_get_rgbleds_dim_green();
-    leds->dim_blue = mgos_sys_config_get_rgbleds_dim_blue();
+    leds->soft_dim = mgos_sys_config_get_rgbleds_soft_dim();
     leds->led_type = mgos_sys_config_get_rgbleds_led_type();
     leds->single_mode = mgos_sys_config_get_rgbleds_single_mode();
     leds->invert_colors = mgos_sys_config_get_rgbleds_invert_colors();
     leds->timeout = mgos_sys_config_get_rgbleds_timeout();
-    leds->data_len = leds->num_pixels * leds->num_channels;
 
-    leds->lutR = (uint8_t*)gammaR8;
-    leds->lutG = (uint8_t*)gammaG8;
-    leds->lutB = (uint8_t*)gammaB8;
-    leds->color_shadows = calloc(leds->num_pixels, leds->num_channels);
-    leds->color_values = calloc(1, leds->num_pixels * leds->num_channels);
-    memset(leds->color_values, 0x0f, leds->num_pixels * leds->num_channels);
+    mgos_rgbleds_set_orientation(leds);
+    mgos_rgbleds_get_gaps(leds);
+    mgos_rgbleds_prepare_gamma(leds);
+
+    uint32_t panel_data_len = leds->panel_width * leds->panel_height * leds->num_channels;
+
+    leds->color_values = calloc(1, panel_data_len);
+    memset(leds->color_values, 0x0f, panel_data_len);
 
     switch (leds->led_type) {
-    case MGOS_RGBLEDS_TYPE_NEOPIXEL:
     case MGOS_RGBLEDS_TYPE_WS2812:
+        ws2812_control_init(pin, 0, leds->panel_width * leds->panel_height);
+    case MGOS_RGBLEDS_TYPE_NEOPIXEL:
     case MGOS_RGBLEDS_TYPE_APA102:
-        leds->driver = mgos_neopixel_create(pin, leds->num_pixels, leds->color_order, leds->num_channels);
+        leds->driver = mgos_neopixel_create(pin, leds->panel_width * leds->panel_height, leds->color_order, leds->num_channels);
         leds->data = ((struct mgos_neopixel*)leds->driver)->data;
         break;
     default:
@@ -95,23 +97,72 @@ mgos_rgbleds* mgos_rgbleds_create()
     return leds;
 }
 
-void mgos_rgbleds_get_colors(mgos_rgbleds* leds)
+void mgos_rgbleds_prepare_gamma(mgos_rgbleds* leds)
+{
+    double gamma[3];
+    uint8_t* luts[3];
+
+    gamma[0] = leds->gamma_red;
+    gamma[1] = leds->gamma_green;
+    gamma[2] = leds->gamma_blue;
+
+    for (int col = 0; col < 3; col++) {
+        if (gamma[col] != 1.0) {
+            luts[col] = calloc(1, 256);
+            for (int i = 0; i < 256; i++) {
+                double value = i / 255.0;
+                double gammaExp = (1.0 * gamma[col]);
+                luts[col][i] = (uint8_t)round(255.0 * pow(value, gammaExp));
+                LOG(LL_DEBUG, ("Gamma table %s: gamma %.02f, in: %d, out: %d", (col == 0 ? "red" : col == 1 ? "green" : "blue"), gamma[col], i, luts[col][i]));
+            }
+        }
+    }
+    leds->lutR = luts[0];
+    leds->lutG = luts[1];
+    leds->lutB = luts[2];
+}
+
+void mgos_rgbleds_get_gaps(mgos_rgbleds* leds)
+{
+    char** str_gaps;
+    leds->gaps_len = tools_str_split(mgos_sys_config_get_rgbleds_gaps(), ',', &str_gaps);
+    if (leds->gaps_len > 0) {
+        leds->gaps = calloc(leds->gaps_len, sizeof(uint32_t));
+        for (int i = 0; i < leds->gaps_len; i++) {
+            leds->gaps[i] = atoi(str_gaps[i]);
+        }
+        tools_str_split_free(str_gaps, leds->gaps_len);
+    }
+}
+
+bool mgos_rgbleds_is_in_gaps(mgos_rgbleds* leds, int pix)
+{
+    bool result = false;
+    if (leds->gaps_len > 0)
+        for (int i = 0; i < leds->gaps_len; i++) {
+            if (pix == (int)leds->gaps[i]) {
+                result = true;
+                break;
+            }
+        }
+    return result;
+}
+
+void mgos_rgbleds_get_bitmap(mgos_rgbleds* leds)
 {
     if (leds->color_file != NULL) {
-        bmpread_t* p_bmp_out = calloc(1, sizeof(bmpread_t));
-        if (bmpread(leds->color_file, BMPREAD_TOP_DOWN | BMPREAD_BYTE_ALIGN, p_bmp_out) > 0) {
+        bmpread_t* p_bmp_out = mgos_bmp_loader_create();
+        if (mgos_bmp_loader_load(p_bmp_out, leds->color_file, BMPREAD_TOP_DOWN | BMPREAD_BYTE_ALIGN | BMPREAD_ANY_SIZE)) {
             leds->pic_width = p_bmp_out->width;
             leds->pic_height = p_bmp_out->height;
-            leds->num_pixels = leds->panel_width * leds->panel_height;
-            leds->data_len = leds->pic_width * leds->pic_height * 3;
-            leds->color_shadows = realloc(leds->color_shadows, leds->data_len);
-            leds->color_values = realloc(leds->color_values, leds->data_len);
-            memcpy(leds->color_values, p_bmp_out->data, leds->data_len);
-            mgos_rgbleds_adapt_colors(leds);
-            memcpy(leds->color_shadows, leds->color_values, leds->data_len);
-            bmpread_free(p_bmp_out);
-            free(p_bmp_out);
-            LOG(LL_INFO, ("Bitmap file <%s> loaded and processed!", leds->color_file));
+            uint32_t pic_data_len = leds->pic_width * leds->pic_height * 3;
+            LOG(LL_DEBUG, ("Bitmap file width: <%d>, height: <%d>, data: <%d>", leds->pic_width, leds->pic_height, pic_data_len));
+            if (leds->pic_width > leds->panel_width || leds->pic_height > leds->panel_height) {
+                leds->color_values = realloc(leds->color_values, pic_data_len);
+            }
+            memcpy(leds->color_values, p_bmp_out->data, pic_data_len);
+            mgos_bmp_loader_free(p_bmp_out);
+            LOG(LL_DEBUG, ("Bitmap file <%s> loaded and processed!", leds->color_file));
         } else {
             LOG(LL_ERROR, ("Bitmap file <%s> could not be loaded!", leds->color_file));
         }
@@ -120,9 +171,61 @@ void mgos_rgbleds_get_colors(mgos_rgbleds* leds)
     }
 }
 
-void mgos_rgbleds_rotate_colors(mgos_rgbleds* leds)
+void mgos_rgbleds_scale_bitmap(mgos_rgbleds* leds)
 {
-    uint8_t* dest = calloc(leds->data_len, 1);
+    if (leds->pic_width == 0 || leds->pic_height == 0) {
+        LOG(LL_ERROR, ("Bitmap %s is empty!", leds->color_file));
+        return;
+    }
+
+    double scale_y = leds->fit_vert ? (leds->panel_height * 1.0) / (leds->pic_height * 1.0) : 1.0;
+    double scale_x = leds->fit_horz ? (leds->panel_width * 1.0) / (leds->pic_width * 1.0) : 1.0;
+    if (leds->fit_vert && !leds->fit_horz) {
+        scale_x = scale_y;
+    } else if (leds->fit_horz && !leds->fit_vert) {
+        scale_y = scale_x;
+    }
+    int new_width = (int)round(scale_x * leds->pic_width);
+    int new_height = (int)round(scale_y * leds->pic_height);
+    LOG(LL_INFO, ("Scale: w: %d, h: %d, x: %f, y: %f, nw: %d, nh: %d", leds->pic_width, leds->pic_height, scale_x, scale_y, new_width, new_height));
+
+    mgos_rgbleds_rgb* target = calloc(new_width * new_height, sizeof(mgos_rgbleds_rgb));
+    for (int y = 0; y < new_height; y++) {
+        for (int x = 0; x < new_width; x++) {
+            int x_src = (int)round(x / scale_x);
+            x_src = (x_src < 0) ? 0 : (x_src >= leds->pic_width) ? (leds->pic_width - 1) : x_src;
+            int y_src = (int)round(y / scale_y);
+            y_src = (y_src < 0) ? 0 : (y_src >= leds->pic_height) ? (leds->pic_height - 1) : y_src;
+            mgos_rgbleds_rgb* p_tgt = ((mgos_rgbleds_rgb*)target) + ((y * new_width) + x);
+            mgos_rgbleds_rgb* p_src = ((mgos_rgbleds_rgb*)leds->color_values) + ((y_src * leds->pic_width) + x_src);
+            *p_tgt = *p_src;
+            LOG(LL_DEBUG, ("Src - x: %d, y: %d, Tgt - x: %d, y: %d", x_src, y_src, x, y));
+        }
+    }
+
+    free(leds->color_values);
+    leds->color_values = (uint8_t*)target;
+    leds->pic_width = new_width;
+    leds->pic_height = new_height;
+}
+
+void mgos_rgbleds_set_orientation(mgos_rgbleds* leds)
+{
+    int deg = mgos_sys_config_get_rgbleds_rotate_out();
+    bool do_swap = (deg % 90) == 0 && ((deg / 90) & 0x1) == 1;
+    if (do_swap) {
+        mgos_rgbleds_coords dst;
+        int width = leds->panel_height;
+        int height = leds->panel_width;
+        leds->panel_height = height;
+        leds->panel_width = width;
+    }
+}
+
+void mgos_rgbleds_rotate_bitmap(mgos_rgbleds* leds)
+{
+    uint32_t pic_data_len = leds->pic_width * leds->pic_height * 3;
+    uint8_t* dest = calloc(pic_data_len, 1);
     int new_width = leds->pic_height;
     int new_height = leds->pic_width;
     for (int y = 0; y < leds->pic_height; y++) {
@@ -140,65 +243,70 @@ void mgos_rgbleds_rotate_colors(mgos_rgbleds* leds)
     leds->pic_height = new_width;
 }
 
-void mgos_rgbleds_adapt_colors(mgos_rgbleds* leds)
+tools_rgb_data mgos_rgbleds_lookup_gamma(mgos_rgbleds* leds, tools_rgb_data pix)
 {
-    uint8_t col_pos = 0;
-    uint32_t len = leds->data_len;
-    uint8_t* p_col = leds->color_values;
-    while (len--) {
-        int val = *p_col;
-        double dim = leds->dim_all;
-        uint8_t* lut = NULL;
-        val = leds->invert_colors ? (255 - val) : val;
-        switch (col_pos) {
-        case 0:
-            dim *= leds->dim_red;
-            lut = leds->lutR;
-            break;
-        case 1:
-            dim *= leds->dim_green;
-            lut = leds->lutG;
-            break;
-        case 2:
-            dim *= leds->dim_blue;
-            lut = leds->lutB;
-            break;
-        default:
-            break;
+    double dim_all = (leds->soft_dim || (leds->led_type != MGOS_RGBLEDS_TYPE_APA102)) ? leds->dim_all : 1.0;
+    uint8_t cols[3];
+    uint8_t* luts[3];
+
+    cols[0] = pix.r;
+    cols[1] = pix.g;
+    cols[2] = pix.b;
+
+    luts[0] = leds->lutR;
+    luts[1] = leds->lutG;
+    luts[2] = leds->lutB;
+
+    for (int i = 0; i < 3; i++) {
+        int val = leds->invert_colors ? (255 - cols[i]) : cols[i];
+        if (luts[i] != NULL) {
+            val = (int)luts[i][val];
         }
-        if (lut != NULL) {
-            val = (int)lut[val];
-        }
-        val = (int)round(val * dim);
+
         val = (val > 255) ? 255 : val;
         val = (val < 0) ? 0 : val;
-        *p_col++ = val;
-        if (++col_pos == 3) {
-            col_pos = 0;
-        }
+        cols[i] = val;
     }
+
+    pix.r = cols[0];
+    pix.g = cols[1];
+    pix.b = cols[2];
+
+    if ((int)dim_all != 1) {
+        double h, s, v;
+        tools_rgb_to_hsv(pix, &h, &s, &v);
+        v = v * dim_all;
+        pix = tools_hsv_to_rgb(h, s, v);
+    }
+
+    return pix;
 }
 
-void mgos_rgbleds_adapt_viewport(mgos_rgbleds* leds, int vp_x, int vp_y, int col_x, int col_y, bool do_black)
+void mgos_rgbleds_set_adapted(mgos_rgbleds* leds, int vp_x, int vp_y, int col_x, int col_y, bool do_black)
 {
+    uint32_t pic_data_len = leds->pic_width * leds->pic_height * leds->pic_channels;
     mgos_rgbleds_coords col;
     mgos_rgbleds_rotate_coords(col_x, col_y, leds->pic_width, leds->pic_height, leds->rotate_col, &col);
-    int col_runner = ((col.y * col.w) + (col.x % col.w)) % leds->data_len;
+    int col_runner = ((col.y * col.w) + (col.x % col.w)) % pic_data_len;
     uint8_t black[4] = { 0, 0, 0, 0 };
     uint8_t* p_pix = do_black ? black : leds->color_values + (col_runner * leds->num_channels);
 
     mgos_rgbleds_coords dst;
     mgos_rgbleds_rotate_coords(vp_x, vp_y, leds->panel_width, leds->panel_height, leds->rotate_out, &dst);
     bool isOdd = ((dst.y & 0x01) == 1);
-    int corr_x = (leds->toggle_odd && isOdd) ? (dst.w - (dst.x + 1)) : dst.x;
-    int runner = (dst.y * dst.w) + corr_x;
+    bool toggle_odd = mgos_sys_config_get_rgbleds_toggle_odd();
+    int corr_x = (toggle_odd && isOdd) ? (dst.w - (dst.x + 1)) : dst.x;
+    vp_x = corr_x;
 
-    mgos_rgbleds_set(leds, runner, p_pix[0], p_pix[1], p_pix[2]);
+    tools_rgb_data out_pix;
+    out_pix.r = p_pix[0];
+    out_pix.g = p_pix[1];
+    out_pix.b = p_pix[2];
+    mgos_rgbleds_plot_pixel(leds, vp_x, vp_y, out_pix, false);
 }
 
 void mgos_rgbleds_rotate_coords(int x, int y, int w, int h, int deg, mgos_rgbleds_coords* out)
 {
-    int dst_x, dst_y, dst_w, dst_h;
     out->w = w;
     out->h = h;
     switch (deg) {
@@ -223,36 +331,279 @@ void mgos_rgbleds_rotate_coords(int x, int y, int w, int h, int deg, mgos_rgbled
         out->y = y;
         break;
     }
+    out->pix_pos = out->x + (out->y * out->w);
+}
+
+static int mgos_rgbleds_calc_pix_num(mgos_rgbleds* leds, int x, int y, bool invert_toggle_odd)
+{
+    uint16_t led_pos = 0;
+    bool isOdd;
+
+    if (x < 0 || y < 0 || x >= leds->panel_width || y >= leds->panel_height) {
+        // do nothing if out of bounds
+        return -1;
+    }
+
+    bool is_updown = mgos_sys_config_get_rgbleds_updown();
+    bool toggle_odd = mgos_sys_config_get_rgbleds_toggle_odd();
+    toggle_odd = invert_toggle_odd ? ~toggle_odd : toggle_odd; 
+    const char* alignement = mgos_sys_config_get_rgbleds_alignement();
+    char align = 'N';
+    if (alignement != NULL && strlen(alignement) > 0) {
+        align = alignement[0];
+    }
+
+    switch (align) {
+    case 'Y':
+        isOdd = ((x & 0x01) == 1);
+        y = is_updown ? leds->panel_height - 1 - y : y;
+        y = (toggle_odd && isOdd) ? (leds->panel_height - (y + 1)) : y;
+        led_pos = ((x * leds->panel_height)) + y;
+        break;
+    default:
+    case 'X':
+        isOdd = ((y & 0x01) == 1);
+        x = is_updown ? leds->panel_width - 1 - x : x;
+        x = (toggle_odd && isOdd) ? (leds->panel_width - (x + 1)) : x;
+        led_pos = ((y * leds->panel_width) + x);
+        break;
+    }
+
+    return led_pos;
+}
+
+void mgos_rgbleds_plot_pixel(mgos_rgbleds* leds, int x, int y, tools_rgb_data color, bool invert_toggle_odd)
+{
+    int led_pos = mgos_rgbleds_calc_pix_num(leds, x, y, invert_toggle_odd);
+    uint32_t num_pix = leds->panel_width * leds->panel_height;
+
+    if (led_pos >= 0 && led_pos < num_pix) {
+        color = mgos_rgbleds_lookup_gamma(leds, color);
+        mgos_rgbleds_set_pixel(leds, led_pos, color);
+    }
+}
+
+void mgos_rgbleds_plot_all(mgos_rgbleds* leds, tools_rgb_data pix_col)
+{
+    for (int x = 0; x < leds->panel_width; x++) {
+        for (int y = 0; y < leds->panel_height; y++) {
+            mgos_rgbleds_plot_pixel(leds, x, y, pix_col, false);
+        }
+    }
+}
+
+void mgos_rgbleds_line(mgos_rgbleds* leds, int x1, int y1, int x2, int y2, tools_rgb_data color)
+{
+    // Bresenham for lines
+    int x, y, dx, dy, error, a, b, x_step, y_step;
+
+    dx = x2 - x1;
+    dy = y2 - y1;
+    x_step = 1;
+    y_step = 1;
+    x = x1;
+    y = y1;
+    if (dx < 0) {
+        dx = -dx;
+        x_step = -1;
+    }
+    if (dy < 0) {
+        dy = -dy;
+        y_step = -1;
+    }
+    a = dx + dx;
+    b = dy + dy;
+    if (dy <= dx) {
+        error = -dx;
+        while (x != x2) {
+            mgos_rgbleds_plot_pixel(leds, x, y, color, false);
+            error = error + b;
+            if (error > 0) {
+                y = y + y_step;
+                error = error - a;
+            }
+            x = x + x_step;
+        } // while
+    } else {
+        error = -dy;
+        while (y != y2) {
+            mgos_rgbleds_plot_pixel(leds, x, y, color, false);
+            error = error + a;
+            if (error > 0) {
+                x = x + x_step;
+                error = error - b;
+            }
+            y = y + y_step;
+        } // while
+    }
+    mgos_rgbleds_plot_pixel(leds, x, y, color, false);
+}
+
+void mgos_rgbleds_ellipse(mgos_rgbleds* leds, int origin_x, int origin_y, int width, int height, tools_rgb_data color)
+{
+
+    int hh = height * height;
+    int ww = width * width;
+    int hhww = hh * ww;
+    int x0 = width;
+    int dx = 0;
+
+    // do the horizontal diameter
+    for (int x = -width; x <= width; x++) {
+        mgos_rgbleds_plot_pixel(leds, origin_x + x, origin_y, color, false);
+    }
+
+    // now do both halves at the same time, away from the diameter
+    for (int y = 1; y <= height; y++) {
+        int x1 = x0 - (dx - 1); // try slopes of dx - 1 or more
+        for (; x1 > 0; x1--) {
+            if (x1 * x1 * hh + y * y * ww <= hhww) {
+                break;
+            }
+        }
+
+        dx = x0 - x1; // current approximation of the slope
+        x0 = x1;
+
+        for (int x = -x0; x <= x0; x++) {
+            mgos_rgbleds_plot_pixel(leds, origin_x + x, origin_y - y, color, false);
+            mgos_rgbleds_plot_pixel(leds, origin_x + x, origin_y + y, color, false);
+        }
+    }
 }
 
 void mgos_rgbleds_set(mgos_rgbleds* leds, int pix, int r, int g, int b)
 {
+    if (mgos_rgbleds_is_in_gaps(leds, pix) == false) {
+        switch (leds->led_type) {
+        case MGOS_RGBLEDS_TYPE_NEOPIXEL:
+        case MGOS_RGBLEDS_TYPE_WS2812:
+        case MGOS_RGBLEDS_TYPE_APA102:
+            mgos_neopixel_set((struct mgos_neopixel*)leds->driver, pix, r, g, b);
+            break;
+        default:
+            break;
+        }
+    } else {
+        mgos_rgbleds_unset(leds, pix);
+    }
+}
+
+void mgos_rgbleds_set_pixel(mgos_rgbleds* leds, int pix, tools_rgb_data color)
+{
+    mgos_rgbleds_set(leds, pix, color.r, color.g, color.b);
+}
+
+void mgos_rgbleds_set_all(mgos_rgbleds* leds, tools_rgb_data pix_col)
+{
+    uint32_t num_pixels = leds->panel_width * leds->panel_height;
+    for (int pix = 0; pix < num_pixels; pix++) {
+        if (mgos_rgbleds_is_in_gaps(leds, pix) == false) {
+            switch (leds->led_type) {
+            case MGOS_RGBLEDS_TYPE_NEOPIXEL:
+            case MGOS_RGBLEDS_TYPE_WS2812:
+            case MGOS_RGBLEDS_TYPE_APA102:
+                mgos_neopixel_set((struct mgos_neopixel*)leds->driver, pix, pix_col.r, pix_col.g, pix_col.b);
+                break;
+            default:
+                break;
+            }
+        } else {
+            mgos_rgbleds_unset(leds, pix);
+        }
+    }
+}
+
+void mgos_rgbleds_set_from_buffer(mgos_rgbleds* leds, int x_offset, int y_offset, bool wrap)
+{
+    uint32_t num_rows = leds->panel_height;
+    uint32_t num_cols = leds->panel_width;
+
+    mgos_rgbleds_clear(leds);
+    // set every column
+    for (int y = 0; y < num_rows; y++) {
+        for (int x = 0; x < num_cols; x++) {
+            int x_pos = x + x_offset;
+            int y_pos = y + y_offset;
+            x_pos = wrap ? (x_pos % leds->pic_width) : x_pos;
+            y_pos = wrap ? (y_pos % leds->pic_height) : y_pos;
+
+            mgos_rgbleds_coords src;
+            mgos_rgbleds_rotate_coords(x_pos, y_pos, leds->pic_width, leds->pic_height, leds->rotate_col, &src);
+            uint32_t pic_num_pixels = leds->pic_width * leds->pic_height;
+            bool is_updown = mgos_sys_config_get_rgbleds_updown();
+            int new_x = is_updown ? leds->pic_width - 1 - src.x : src.x;
+            int src_runner = ((src.y * src.w) + new_x) % pic_num_pixels;
+            uint8_t* p_pix = leds->color_values + (src_runner * leds->pic_channels);
+            tools_rgb_data out_pix;
+            out_pix.r = p_pix[0];
+            out_pix.g = p_pix[1];
+            out_pix.b = p_pix[2];
+
+            mgos_rgbleds_plot_pixel(leds, x, y, out_pix, false);
+        }
+    }
+}
+
+void mgos_rgbleds_unset(mgos_rgbleds* leds, int pix)
+{
     switch (leds->led_type) {
     case MGOS_RGBLEDS_TYPE_NEOPIXEL:
     case MGOS_RGBLEDS_TYPE_WS2812:
     case MGOS_RGBLEDS_TYPE_APA102:
-        mgos_neopixel_set((struct mgos_neopixel*)leds->driver, pix, r, g, b);
+        mgos_neopixel_set((struct mgos_neopixel*)leds->driver, pix, 0x00, 0x00, 0x00);
         break;
     default:
         break;
     }
 }
 
-void mgos_rgbleds_get(mgos_rgbleds* leds, int pix, char* out, int len)
+tools_rgb_data mgos_rgbleds_get(mgos_rgbleds* leds, int pix, char* out, int len)
 {
-    uint8_t* p;
+    tools_rgb_data out_pix;
+    uint8_t* p = leds->data + (pix * leds->num_channels);
+
     switch (leds->led_type) {
     case MGOS_RGBLEDS_TYPE_NEOPIXEL:
     case MGOS_RGBLEDS_TYPE_WS2812:
     case MGOS_RGBLEDS_TYPE_APA102:
-        p = leds->data + pix * leds->num_channels;
-        if (len > 11) {
-            sprintf(out, "%.03d,%.03d,%.03d", p[0], p[1], p[2]);
+        switch (leds->color_order) {
+        case MGOS_NEOPIXEL_ORDER_RGB:
+            out_pix.r = p[0];
+            out_pix.g = p[1];
+            out_pix.b = p[2];
+            break;
+        case MGOS_NEOPIXEL_ORDER_GRB:
+            out_pix.g = p[0];
+            out_pix.r = p[1];
+            out_pix.b = p[2];
+            break;
+        case MGOS_NEOPIXEL_ORDER_BGR:
+            out_pix.b = p[0];
+            out_pix.g = p[1];
+            out_pix.r = p[2];
+            break;
+        default:
+            LOG(LL_ERROR, ("Wrong order: %d", leds->color_order));
+            break;
         }
         break;
     default:
+        LOG(LL_ERROR, ("Unknown LED type: %d", leds->led_type));
         break;
     }
+
+    if (len > 11) {
+        sprintf(out, "%.03d,%.03d,%.03d", out_pix.r, out_pix.g, out_pix.b);
+    }
+
+    return out_pix;
+}
+
+tools_rgb_data mgos_rgbleds_get_from_pos(mgos_rgbleds* leds, int x, int y, char* out, int len)
+{
+    uint16_t led_pos = mgos_rgbleds_calc_pix_num(leds, x, y, false);
+    return mgos_rgbleds_get(leds, led_pos, out, len);
 }
 
 void mgos_rgbleds_clear(mgos_rgbleds* leds)
@@ -272,13 +623,16 @@ void mgos_rgbleds_show(mgos_rgbleds* leds)
 {
     switch (leds->led_type) {
     case MGOS_RGBLEDS_TYPE_NEOPIXEL:
-    case MGOS_RGBLEDS_TYPE_WS2812:
         LOG(LL_DEBUG, ("Control LEDs over GPIO with bitbanging (WS2812)"));
         mgos_neopixel_show((struct mgos_neopixel*)leds->driver);
         break;
     case MGOS_RGBLEDS_TYPE_APA102:
-        LOG(LL_DEBUG, ("Control LEDs over SPI (APA102"));
+        LOG(LL_DEBUG, ("Control LEDs over SPI (APA102)"));
         mgos_rgbleds_transfer_spi(leds);
+        break;
+    case MGOS_RGBLEDS_TYPE_WS2812:
+        LOG(LL_DEBUG, ("Control LEDs over ESP32 RMT"));
+        ws2812_write_leds(((struct mgos_neopixel*)leds->driver)->data, leds->panel_height * leds->panel_height);
         break;
     default:
         break;
@@ -288,7 +642,10 @@ void mgos_rgbleds_show(mgos_rgbleds* leds)
 void mgos_rgbleds_transfer_spi(mgos_rgbleds* leds)
 {
     uint16_t pix;
-    uint8_t brightness = 0xFF; //(leds->led_type == MGOS_RGBLEDS_TYPE_APA102) ? ((uint8_t)round((0x1F  *leds->dim) / 100.0) | 0xE0) : 0x1F;
+    int calc_brightness = (int)round(31.0 * leds->dim_all);
+    calc_brightness = (calc_brightness <= 0) ? 1 : (calc_brightness > 31) ? 31 : calc_brightness;
+    uint8_t brightness = leds->soft_dim ? 0x1F : (uint8_t)calc_brightness;
+    uint32_t num_pixels = leds->panel_width * leds->panel_height;
 
     /* Global SPI instance is configured by the `spi` config section. */
     struct mgos_spi* spi = mgos_spi_get_global();
@@ -300,29 +657,28 @@ void mgos_rgbleds_transfer_spi(mgos_rgbleds* leds)
     // Start Frame is included in the buffer
     // included: Reset frame - Only needed for SK9822, has no effect on APA102
     // included: End frame: 8+8*(leds >> 4) clock cycles
-    uint32_t tx_len = (leds->num_pixels * (leds->num_channels + 1)) + (8 + (8 * (leds->num_pixels >> 4))) + 8;
+    uint8_t offset = leds->led_type == MGOS_RGBLEDS_TYPE_APA102 ? 1 : 0;
+    uint32_t tx_len = 4 + (num_pixels * (leds->num_channels + offset)) + (8 + (num_pixels >> 4));
     uint8_t* tx_data = calloc(1, tx_len);
-
-    for (pix = 0; pix < leds->num_pixels; pix++) {
+    for (pix = 0; pix < num_pixels; pix++) {
         uint8_t* p_color = leds->data + (pix * leds->num_channels);
-        uint8_t* p_tx = (tx_data + 4) + (pix * leds->num_channels);
+        uint8_t* p_tx = (tx_data + 4) + (pix * (leds->num_channels + offset));
         if (leds->led_type == MGOS_RGBLEDS_TYPE_APA102) {
-            p_tx[0] = brightness; // Maximum global brightness
-            p_tx++;
+            p_tx[0] = brightness | 0xE0; // setting the brightness
+            p_tx += offset;
         }
-        memcpy(p_tx, p_color, 3);
-        p_tx--;
-        //int ansi_color = rgb_to_ansi(p_tx[1], p_tx[2], p_tx[3]);
-        //char* fmt = "[SPI data]%c[%dm Ansi: %.03d, Len: %d - Brightness: 0x%.02x,  Colors: 0x%.02x, 0x%.02x, 0x%.02x";
-        char* fmt = "[SPI data] Len: %d - Brightness: 0x%.02x, Colors: 0x%.02x, 0x%.02x, 0x%.02x";
-        //LOG(LL_INFO, (fmt, (unsigned int)0x1B, (unsigned int)ansi_color, (unsigned int)ansi_color, tx_len, p_tx[0], p_tx[1], p_tx[2], p_tx[3]));
-        LOG(LL_DEBUG, (fmt, tx_len, p_tx[0], p_tx[1], p_tx[2], p_tx[3]));
+        p_tx[0] = p_color[0];
+        p_tx[1] = p_color[1];
+        p_tx[2] = p_color[2];
+        if (leds->led_type == MGOS_RGBLEDS_TYPE_APA102) {
+            p_tx -= offset;
+        }
     }
 
     struct mgos_spi_txn txn = {
         .cs = 0, /* Use CS0 line as configured by cs0_gpio */
         .mode = 0,
-        .freq = 10000000,
+        .freq = mgos_sys_config_get_rgbleds_spi_freq(),
     };
 
     /* Half-duplex, command/response transaction setup */
@@ -348,8 +704,8 @@ void mgos_rgbleds_transfer_spi(mgos_rgbleds* leds)
 void mgos_rgbleds_free(mgos_rgbleds* leds)
 {
     switch (leds->led_type) {
-    case MGOS_RGBLEDS_TYPE_NEOPIXEL:
     case MGOS_RGBLEDS_TYPE_WS2812:
+    case MGOS_RGBLEDS_TYPE_NEOPIXEL:
     case MGOS_RGBLEDS_TYPE_APA102:
         mgos_neopixel_free((struct mgos_neopixel*)leds->driver);
         break;
@@ -357,7 +713,25 @@ void mgos_rgbleds_free(mgos_rgbleds* leds)
         break;
     }
 
-    //free(leds->color_shadows);
+    if (leds->gaps_len) {
+        free(leds->gaps);
+        leds->gaps = NULL;
+        leds->gaps_len = 0;
+    }
+
+    if (leds->lutR != NULL) {
+        free(leds->lutR);
+    }
+    if (leds->lutG != NULL) {
+        free(leds->lutG);
+    }
+    if (leds->lutB != NULL) {
+        free(leds->lutB);
+    }
+    leds->lutR = NULL;
+    leds->lutG = NULL;
+    leds->lutB = NULL;
+
     free(leds->color_values);
     free(leds);
 }
@@ -366,18 +740,40 @@ static void mgos_timer_cb(void* params)
 {
     mgos_rgbleds* leds = (mgos_rgbleds*)params;
     LOG(LL_DEBUG, ("Call timer callback in C now with delay <%d> ... Callback: 0x%x", leds->timeout, (unsigned int)leds->callback));
-    mgos_rgbleds_stop(leds);
+    //mgos_rgbleds_stop(leds);
     leds->callback(leds);
-    leds->timer_id = mgos_set_timer(leds->timeout, 0, mgos_timer_cb, leds);
+    //leds->timer_id = mgos_set_timer(leds->timeout, 0, mgos_timer_cb, leds);
 }
 
-void mgos_rgbleds_start(mgos_rgbleds* leds)
+void mgos_rgbleds_one_shot(mgos_rgbleds* leds)
 {
-    mgos_rgbleds_get_colors(leds);
+    if (leds->callback != NULL) {
+        LOG(LL_DEBUG, ("One shot callback: 0x%x", (unsigned int)leds->callback));
+        mgos_rgbleds_stop(leds);
+        leds->callback(leds);
+    } else {
+        LOG(LL_ERROR, ("Callback is not assigned! Quitting ..."));
+    }
+}
+
+void mgos_rgbleds_start_delayed(mgos_rgbleds* leds)
+{
     if (leds->timer_id == 0) {
         if (leds->callback != NULL) {
             LOG(LL_INFO, ("Started timer in C now with delay <%d> ... Callback: 0x%x", leds->timeout, (unsigned int)leds->callback));
             leds->timer_id = mgos_set_timer(leds->timeout, 0, mgos_timer_cb, leds);
+        } else {
+            LOG(LL_ERROR, ("Callback is not assigned! Quitting ..."));
+        }
+    }
+}
+
+void mgos_rgbleds_start(mgos_rgbleds* leds)
+{
+    if (leds->timer_id == 0) {
+        if (leds->callback != NULL) {
+            LOG(LL_INFO, ("Started timer in C now with runtime <%d> ... Callback: 0x%x", leds->timeout, (unsigned int)leds->callback));
+            leds->timer_id = mgos_set_timer(leds->timeout, MGOS_TIMER_REPEAT | MGOS_TIMER_RUN_NOW, mgos_timer_cb, leds);
         } else {
             LOG(LL_ERROR, ("Callback is not assigned! Quitting ..."));
         }
