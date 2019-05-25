@@ -112,12 +112,12 @@ let RGB_LEDs = {
     }
   },
 
-  _c: ffi('void *mgos_rgbleds_create()'),
-  _global: ffi('void *mgos_rgbleds_get_global()'),
-  _set: ffi('void mgos_rgbleds_set(void *, int, int, int, int)'),
-  _get: ffi('void mgos_rgbleds_get(void *, int, char *, int)'),
-  _clear: ffi('void mgos_rgbleds_clear(void *)'),
-  _show: ffi('void mgos_rgbleds_show(void *)'),
-  _start: ffi('void mgos_rgbleds_start(void *)'),
-  _stop: ffi('void mgos_rgbleds_stop(void *)')
+  _c: ffi('void *mgos_universal_led_create()'),
+  _global: ffi('void *mgos_universal_led_get_global()'),
+  _set: ffi('void mgos_universal_led_set(void *, int, int, int, int)'),
+  _get: ffi('void mgos_universal_led_get(void *, int, char *, int)'),
+  _clear: ffi('void mgos_universal_led_clear(void *)'),
+  _show: ffi('void mgos_universal_led_show(void *)'),
+  _start: ffi('void mgos_universal_led_start(void *)'),
+  _stop: ffi('void mgos_universal_led_stop(void *)')
 };

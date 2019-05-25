@@ -6,7 +6,7 @@ version: 1.0
 config_schema:
   - ["universal_led", "o", {title: "Settings for RGB LED handling"}]
   - ["universal_led.pin", "i", 19, {title: "The GPIO pin for Neopixel serial output"}]
-  - ["universal_led.spi_freq", "i", 2000000, {title: "The frequency of the SPI bus if APA102 are used"}]
+  - ["universal_led.spi_freq", "i", 2000000, {title: "The frequency of teh SPI bus if APA102 are used"}]
   - ["universal_led.led_type", "i", 0, {title: "The type of the driven LEDs (WS2812, Neopixel, APA102 ...)"}]
   - ["universal_led.soft_dim", "b", false, {title: "If APA102 are used, the brightness could be sent als value sent to the LEDs"}]
   - ["universal_led.color_file", "s", "", {title: "File name which should be used as source (BMP)"}]
