@@ -6,7 +6,6 @@ version: 1.0
 config_schema:
   - ["universal_led", "o", {title: "Settings for RGB LED handling"}]
   - ["universal_led.pin", "i", 19, {title: "The GPIO pin for Neopixel serial output"}]
-  - ["universal_led.spi_freq", "i", 2000000, {title: "The frequency of the SPI bus if APA102 are used"}]
   - ["universal_led.led_type", "i", 0, {title: "The type of the driven LEDs (WS2812, Neopixel, APA102 ...)"}]
   - ["universal_led.soft_dim", "b", false, {title: "If APA102 are used, the brightness could be sent als value sent to the LEDs"}]
   - ["universal_led.color_file", "s", "", {title: "File name which should be used as source (BMP)"}]
@@ -17,9 +16,9 @@ config_schema:
   - ["universal_led.pic_channels", "i", 3, {title: "Amount of channels of the color in loaded pictures (RGB -> 3, RGBA - > 4)"}]
   - ["universal_led.gaps", "s", "", {title: "Every LED in this array will be set to dark"}]
   - ["universal_led.dim_all", "d", 1.0, {title: "Dimming of the LED over all colors"}]
-  - ["universal_led.gamma_red", "d", 1.0, {title: "Dimming of the LED over RED"}]
-  - ["universal_led.gamma_green", "d", 1.0, {title: "Dimming of the LED over GREEN"}]
-  - ["universal_led.gamma_blue", "d", 1.0, {title: "Dimming of the LED over BLUE"}]
+  - ["universal_led.gamma_red", "d", 2.8, {title: "Dimming of the LED over RED"}]
+  - ["universal_led.gamma_green", "d", 2.8, {title: "Dimming of the LED over GREEN"}]
+  - ["universal_led.gamma_blue", "d", 2.8, {title: "Dimming of the LED over BLUE"}]
   - ["universal_led.single_mode", "b", false, {title: "For animations: light up only one (the current) pixel"}]
   - ["universal_led.color_order", "i", 1, {title: "The order of the RGB channels tp be pushed to the LEDs"}]
   - ["universal_led.first_zero", "b", false, {title: "Set the current (first) pixel always to zero (dark)"}]
@@ -29,6 +28,18 @@ config_schema:
   - ["universal_led.rotate_col", "i", 0, {title: "Rotate the image content to adjust the display orientation"}]
   - ["universal_led.alignement", "s", "Y", {title: "Alignement of the stripes in panel"}]
   - ["universal_led.rotate_out", "i", 90, {title: "Rotate the image content to adjust the display orientation"}]
+
+  - ["universal_led.spi_freq", "i", 6000000, {title: "The frequency of the SPI bus if APA102 are used"}]
+  - ["universal_led.spi", "o", {title: "Settings for the dedicated SPI port to control the LEDs"}]
+  - ["universal_led.spi.enable", "b", true, {title: ""}]
+  - ["universal_led.spi.debug", "b", false, {title: ""}]
+  - ["universal_led.spi.unit_no", "i", 2, {title: ""}]
+  - ["universal_led.spi.miso_gpio", "i", 12, {title: ""}]
+  - ["universal_led.spi.mosi_gpio", "i", 15, {title: ""}]
+  - ["universal_led.spi.sclk_gpio", "i", 4, {title: ""}]
+  - ["universal_led.spi.cs0_gpio", "i", 33, {title: ""}]
+  - ["universal_led.spi.cs1_gpio", "i", -1, {title: ""}]
+  - ["universal_led.spi.cs2_gpio", "i", -1, {title: ""}]
 
 sources:
   - src
@@ -50,7 +61,8 @@ manifest_version: 2017-09-29
 libs:
 
   - origin: https://github.com/mamuesp-libs/common-tools  
-  - origin: https://github.com/mamuesp-libs/bmp-loader  
+  - origin: https://github.com/mamuesp-libs/color-tools  
   - origin: /Develop/HeyDo/heydo-mqtt/Mongoose-OS/heydo-libs/neopixel
+  - origin: https://github.com/mongoose-os-libs/bmp-loader  
   - origin: https://github.com/mongoose-os-libs/spi
   - origin: https://github.com/mongoose-os-libs/core

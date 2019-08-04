@@ -19,27 +19,6 @@
 #include "mgos_universal_led.h"
 #include "mgos_common_tools.h"
 
-/*
-#include "debug_colors.h"
-
-static int rgb_to_ansi(int red, int grn, int blu)
-{
-    uint32_t d0 = red * red + grn * grn + blu * blu;
-    int colIdx = 0;
-    for (int cl = 0; cl < 256; cl++) {
-        int p_red = colorPalette[cl][0];
-        int p_grn = colorPalette[cl][1];
-        int p_blu = colorPalette[cl][2];
-        int d = (red - p_red) * (red - p_red) + (grn - p_grn) * (grn - p_grn) + (blu - p_blu) * (blu - p_blu);
-        if (d0 >= d) {
-            colIdx = cl;
-            break;
-        }
-    }
-    return colIdx;
-}
-*/
-
 mgos_rgbleds* mgos_universal_led_get_global()
 {
     if (global_leds == NULL) {
@@ -113,13 +92,11 @@ void mgos_universal_led_prepare_gamma(mgos_rgbleds* leds)
 
     for (int col = 0; col < 3; col++) {
         LOG(LL_DEBUG, ("Gamma table %s ist set up with gamma %.02f", (col == 0 ? "red" : col == 1 ? "green" : "blue"), gamma[col]));
-        if (gamma[col] != 1.0) {
-            luts[col] = calloc(1, 256);
-            for (int i = 0; i < 256; i++) {
-                double value = i / 255.0;
-                double gammaExp = (1.0 * gamma[col]);
-                luts[col][i] = (uint8_t)round(255.0 * pow(value, gammaExp));
-            }
+        luts[col] = calloc(1, 512);
+        for (int i = 0; i < 256; i++) {
+            double value = i / 255.0;
+            double gammaExp = (1.0 * gamma[col]);
+            luts[col][i] = (gamma[col] != 1.0) ? (uint8_t)round(255.0 * pow(value, gammaExp)) : i;
         }
     }
     leds->lutR = luts[0];
@@ -221,7 +198,7 @@ void mgos_universal_led_set_orientation(mgos_rgbleds* leds)
     int deg = mgos_sys_config_get_universal_led_rotate_out();
     bool do_swap = (deg % 90) == 0 && ((deg / 90) & 0x1) == 1;
     if (do_swap) {
-        mgos_rgbleds_coords dst;
+        //mgos_rgbleds_coords dst;
         int width = leds->panel_height;
         int height = leds->panel_width;
         leds->panel_height = height;
@@ -266,7 +243,7 @@ tools_rgb_data mgos_universal_led_lookup_gamma(mgos_rgbleds* leds, tools_rgb_dat
 
     for (int i = 0; i < 3; i++) {
         int val = leds->invert_colors ? (255 - cols[i]) : cols[i];
-        if (luts[i] != NULL) {
+        if (luts[i] != NULL && val < 256 && val >= 0) {
             val = (int)luts[i][val];
         }
 
@@ -595,7 +572,7 @@ void mgos_universal_led_set_rings_from_buffer(mgos_rgbleds* leds, int x_offset, 
             out_pix.r = p_pix[0];
             out_pix.g = p_pix[1];
             out_pix.b = p_pix[2];
- 
+
             int plot_x = do_reverse ? leds->panel_width - 1 - x : x;
             mgos_universal_led_plot_pixel(leds, plot_x, y, out_pix, invert_toggle_odd);
         }
@@ -701,15 +678,22 @@ void mgos_universal_led_transfer_spi(mgos_rgbleds* leds)
 {
     uint16_t pix;
     int calc_brightness = (int)round(31.0 * leds->dim_all);
-    calc_brightness = (calc_brightness <= 0) ? 1 : (calc_brightness > 31) ? 31 : calc_brightness;
+    calc_brightness = (calc_brightness < 0) ? 0 : (calc_brightness > 31) ? 31 : calc_brightness;
     uint8_t brightness = leds->soft_dim ? 0x1F : (uint8_t)calc_brightness;
     uint32_t num_pixels = leds->panel_width * leds->panel_height;
+    LOG(LL_DEBUG, ("SPI: brightness of LEDs - 0x%02X", brightness));
 
     /* Global SPI instance is configured by the `spi` config section. */
-    struct mgos_spi* spi = mgos_spi_get_global();
+    static struct mgos_spi* spi;
     if (spi == NULL) {
-        LOG(LL_ERROR, ("SPI is not configured, make sure spi.enable is true"));
-        return;
+        struct mgos_config_spi* led_SPI_conf = (struct mgos_config_spi*)mgos_sys_config_get_universal_led_spi();
+        spi = mgos_spi_create(led_SPI_conf);
+        if (spi == NULL) {
+            LOG(LL_ERROR, ("SPI is not configured, make sure spi.enable is true"));
+            return;
+        } else {
+            LOG(LL_ERROR, ("SPI succesfully initialized!"));
+        }
     }
 
     // Start Frame is included in the buffer
@@ -749,13 +733,14 @@ void mgos_universal_led_transfer_spi(mgos_rgbleds* leds)
     txn.hd.rx_data = NULL;
     txn.hd.rx_len = 0;
 
-    LOG(LL_VERBOSE_DEBUG, ("Start SPI transaction."));
+    LOG(LL_DEBUG, ("Start SPI transaction."));
     if (!mgos_spi_run_txn(spi, false, &txn)) {
         LOG(LL_ERROR, ("SPI transaction failed"));
     }
-    LOG(LL_VERBOSE_DEBUG, ("Success: SPI transaction finished."));
+    LOG(LL_DEBUG, ("Success: SPI transaction finished."));
 
     free(tx_data);
+
     return;
 }
 
@@ -845,9 +830,9 @@ void mgos_universal_led_stop(mgos_rgbleds* leds)
         mgos_clear_timer(leds->timer_id);
         leds->timer_id = 0;
     }
-    
+
     if (leds->callback != NULL) {
-        LOG(LL_VERBOSE_DEBUG, ("Processing finishing callback <0x%X>", (uint32_t) leds->callback));        
+        LOG(LL_VERBOSE_DEBUG, ("Processing finishing callback <0x%X>", (uint32_t)leds->callback));
         leds->callback(leds, MGOS_RGBLEDS_ACT_EXIT);
     }
 }
@@ -884,57 +869,57 @@ void mgos_universal_led_pause(mgos_rgbleds* leds)
     }
 }
 
-void mgos_universal_led_log_data(mgos_rgbleds* leds, enum cs_log_level level, const char *name)
+void mgos_universal_led_log_data(mgos_rgbleds* leds, enum cs_log_level level, const char* name)
 {
     LOG(level, ("\nData listing of: %s\n", name));
-    LOG(level, ("mgos_rgbleds.back: %s", leds->back ? "TRUE" : "FALSE"));
-    LOG(level, ("mgos_rgbleds.invert_colors: %s", leds->invert_colors ? "TRUE" : "FALSE"));
-    LOG(level, ("mgos_rgbleds.single_mode: %s", leds->single_mode ? "TRUE" : "FALSE"));
-    LOG(level, ("mgos_rgbleds.soft_dim: %s", leds->soft_dim ? "TRUE" : "FALSE"));
-    LOG(level, ("mgos_rgbleds.fit_horz: %s", leds->fit_horz ? "TRUE" : "FALSE"));
-    LOG(level, ("mgos_rgbleds.fit_vert: %s", leds->back ? "TRUE" : "FALSE"));
+    LOG(level, ("universal_led.back: %s", leds->back ? "TRUE" : "FALSE"));
+    LOG(level, ("universal_led.invert_colors: %s", leds->invert_colors ? "TRUE" : "FALSE"));
+    LOG(level, ("universal_led.single_mode: %s", leds->single_mode ? "TRUE" : "FALSE"));
+    LOG(level, ("universal_led.soft_dim: %s", leds->soft_dim ? "TRUE" : "FALSE"));
+    LOG(level, ("universal_led.fit_horz: %s", leds->fit_horz ? "TRUE" : "FALSE"));
+    LOG(level, ("mgosuniversal_led_rgbleds.fit_vert: %s", leds->back ? "TRUE" : "FALSE"));
 
-    LOG(level, ("mgos_rgbleds.color_file: %s", leds->color_file == NULL ? "NULL" : leds->color_file));
+    LOG(level, ("universal_led.color_file: %s", leds->color_file == NULL ? "NULL" : leds->color_file));
 
-    LOG(level, ("mgos_rgbleds.dim_all: %.03f", leds->dim_all));
-    LOG(level, ("mgos_rgbleds.gamma_red: %.03f", leds->gamma_red));
-    LOG(level, ("mgos_rgbleds.gamma_green: %.03f", leds->gamma_green));
-    LOG(level, ("mgos_rgbleds.gamma_blue: %.03f", leds->gamma_blue));
-    //LOG(level, ("mgos_rgbleds.level: %.03f", leds->level));
-    //LOG(level, ("mgos_rgbleds.level_average: %.03f", leds->level_average));
+    LOG(level, ("universal_led.dim_all: %.03f", leds->dim_all));
+    LOG(level, ("universal_led.gamma_red: %.03f", leds->gamma_red));
+    LOG(level, ("universal_led.gamma_green: %.03f", leds->gamma_green));
+    LOG(level, ("universal_led.gamma_blue: %.03f", leds->gamma_blue));
+    //LOG(level, ("universal_led.level: %.03f", leds->level));
+    //LOG(level, ("universal_led.level_average: %.03f", leds->level_average));
 
-    LOG(level, ("mgos_rgbleds.dim_all: %.03f", leds->dim_all));
+    LOG(level, ("universal_led.dim_all: %.03f", leds->dim_all));
 
-    LOG(level, ("mgos_rgbleds.gaps_len: %d", leds->gaps_len));
-    LOG(level, ("mgos_rgbleds.animation: %s", leds->animation));
-    LOG(level, ("mgos_rgbleds.counter: %d", leds->counter));
-    LOG(level, ("mgos_rgbleds.num_channels: %d", leds->num_channels));
-    LOG(level, ("mgos_rgbleds.pic_channels: %d", leds->pic_channels));
-    LOG(level, ("mgos_rgbleds.panel_height: %d", leds->panel_height));
-    LOG(level, ("mgos_rgbleds.panel_width: %d", leds->panel_width));
-    LOG(level, ("mgos_rgbleds.pic_height: %d", leds->pic_height));
-    LOG(level, ("mgos_rgbleds.pic_width: %d", leds->pic_width));
-    LOG(level, ("mgos_rgbleds.pix_pos: %d", leds->pix_pos));
-    //LOG(level, ("mgos_rgbleds.internal_loops: %d", leds->internal_loops));
-    LOG(level, ("mgos_rgbleds.start: %d", leds->start));
-    LOG(level, ("mgos_rgbleds.rotate_col: %d", leds->rotate_col));
-    LOG(level, ("mgos_rgbleds.rotate_out: %d", leds->rotate_out));
+    LOG(level, ("universal_led.gaps_len: %d", leds->gaps_len));
+    LOG(level, ("universal_led.animation: %s", leds->animation == NULL ? "NULL" : leds->animation));
+    LOG(level, ("universal_led.counter: %d", leds->counter));
+    LOG(level, ("universal_led.num_channels: %d", leds->num_channels));
+    LOG(level, ("universal_led.pic_channels: %d", leds->pic_channels));
+    LOG(level, ("universal_led.panel_height: %d", leds->panel_height));
+    LOG(level, ("universal_led.panel_width: %d", leds->panel_width));
+    LOG(level, ("universal_led.pic_height: %d", leds->pic_height));
+    LOG(level, ("universal_led.pic_width: %d", leds->pic_width));
+    LOG(level, ("universal_led.pix_pos: %d", leds->pix_pos));
+    //LOG(level, ("universal_led.internal_loops: %d", leds->internal_loops));
+    LOG(level, ("universal_led.start: %d", leds->start));
+    LOG(level, ("universal_led.rotate_col: %d", leds->rotate_col));
+    LOG(level, ("universal_led.rotate_out: %d", leds->rotate_out));
 
-    LOG(level, ("mgos_rgbleds.color_order: %d", leds->color_order));
-    LOG(level, ("mgos_rgbleds.led_type: %d", leds->led_type));
-    LOG(level, ("mgos_rgbleds.timer_id: %s -> %d", leds->timer_id == 0 ? "NULL" : "ptr", ((uint32_t)leds->timer_id)));
-    LOG(level, ("mgos_rgbleds.callback: %s -> %d", leds->callback == NULL ? "NULL" : "ptr", ((uint32_t)leds->callback)));
+    LOG(level, ("universal_led.color_order: %d", leds->color_order));
+    LOG(level, ("universal_led.led_type: %d", leds->led_type));
+    LOG(level, ("universal_led.timer_id: %s -> %d", leds->timer_id == 0 ? "NULL" : "ptr", ((uint32_t)leds->timer_id)));
+    LOG(level, ("universal_led.callback: %s -> %d", leds->callback == NULL ? "NULL" : "ptr", ((uint32_t)leds->callback)));
 
-    LOG(level, ("mgos_rgbleds.timeout: %d", leds->timeout));
+    LOG(level, ("universal_led.timeout: %d", leds->timeout));
 
-    LOG(level, ("mgos_rgbleds.gaps: %s -> %d", leds->gaps == NULL ? "NULL" : "ptr", ((uint32_t)leds->gaps)));
-    LOG(level, ("mgos_rgbleds.color_values: %s -> %d", leds->color_values == NULL ? "NULL" : "ptr", ((uint32_t)leds->color_values)));
-    LOG(level, ("mgos_rgbleds.data: %s -> %d", leds->data == NULL ? "NULL" : "ptr", ((uint32_t)leds->data)));
-    LOG(level, ("mgos_rgbleds.lutR: %s -> %d", leds->lutR == NULL ? "NULL" : "ptr", ((uint32_t)leds->lutR)));
-    LOG(level, ("mgos_rgbleds.lutG: %s -> %d", leds->lutG == NULL ? "NULL" : "ptr", ((uint32_t)leds->lutG)));
-    LOG(level, ("mgos_rgbleds.lutB: %s -> %d", leds->lutB == NULL ? "NULL" : "ptr", ((uint32_t)leds->lutB)));
+    LOG(level, ("universal_led.gaps: %s -> %d", leds->gaps == NULL ? "NULL" : "ptr", ((uint32_t)leds->gaps)));
+    LOG(level, ("universal_led.color_values: %s -> %d", leds->color_values == NULL ? "NULL" : "ptr", ((uint32_t)leds->color_values)));
+    LOG(level, ("universal_led.data: %s -> %d", leds->data == NULL ? "NULL" : "ptr", ((uint32_t)leds->data)));
+    LOG(level, ("universal_led.lutR: %s -> %d", leds->lutR == NULL ? "NULL" : "ptr", ((uint32_t)leds->lutR)));
+    LOG(level, ("universal_led.lutG: %s -> %d", leds->lutG == NULL ? "NULL" : "ptr", ((uint32_t)leds->lutG)));
+    LOG(level, ("universal_led.lutB: %s -> %d", leds->lutB == NULL ? "NULL" : "ptr", ((uint32_t)leds->lutB)));
 
-    LOG(level, ("mgos_rgbleds.driver: %s -> %d", leds->driver == NULL ? "NULL" : "ptr", ((uint32_t)leds->driver)));
+    LOG(level, ("universal_led.driver: %s -> %d", leds->driver == NULL ? "NULL" : "ptr", ((uint32_t)leds->driver)));
 }
 
 bool mgos_Universal_LED_init(void)

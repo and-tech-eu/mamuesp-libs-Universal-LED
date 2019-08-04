@@ -33,6 +33,7 @@
 #include "mgos_bmp_loader.h"
 #include "ws2812_control.h"
 #include "mgos_common_tools.h"
+#include "mgos_color_tools.h"
 
 typedef enum {
     MGOS_RGBLEDS_ACT_INIT,
