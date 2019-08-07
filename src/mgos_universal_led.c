@@ -18,6 +18,7 @@
 
 #include "mgos_universal_led.h"
 #include "mgos_common_tools.h"
+#include "mgos_color_tools.h"
 
 mgos_rgbleds* mgos_universal_led_get_global()
 {
@@ -383,6 +384,16 @@ void mgos_universal_led_plot_pixel(mgos_rgbleds* leds, int x, int y, tools_rgb_d
     }
 }
 
+void mgos_universal_led_plot_pixel_direct(mgos_rgbleds* leds, int x, int y, tools_rgb_data color, bool invert_toggle_odd)
+{
+    int led_pos = mgos_universal_led_calc_pix_num(leds, x, y, invert_toggle_odd);
+    uint32_t num_pix = leds->panel_width * leds->panel_height;
+
+    if (led_pos >= 0 && led_pos < num_pix) {
+        mgos_universal_led_set_pixel(leds, led_pos, color);
+    }
+}
+
 void mgos_universal_led_plot_all(mgos_rgbleds* leds, tools_rgb_data pix_col)
 {
     for (int x = 0; x < leds->panel_width; x++) {
@@ -633,6 +644,35 @@ tools_rgb_data mgos_universal_led_get(mgos_rgbleds* leds, int pix, char* out, in
     }
 
     return out_pix;
+}
+
+tools_rgb_array *mgos_universal_led_get_from_area(tools_rgb_array *result, mgos_rgbleds* leds, int start_x, int start_y, int width, int height)
+{
+    if (result == NULL) {
+        result = tools_create_rgb_array(width * height);
+    }
+    size_t count_pos = 0;
+
+    for (size_t x = start_x; x < start_x + width; x++)
+    {
+        for (size_t y = start_y; y < start_y + height; y++)
+        {
+            uint16_t led_pos = mgos_universal_led_calc_pix_num(leds, x, y, false);
+            result->data[count_pos++] = mgos_universal_led_get(leds, led_pos, NULL, 0);
+        }
+    }
+    return result;
+}
+void mgos_universal_led_set_to_area(mgos_rgbleds* leds, tools_rgb_array* color_data, int start_x, int start_y, int width, int height) {
+    size_t count_pos = 0;
+    for (size_t x = start_x; x < start_x + width; x++)
+    {
+        for (size_t y = start_y; y < start_y + height; y++)
+        {
+            uint16_t led_pos = mgos_universal_led_calc_pix_num(leds, x, y, false);
+            mgos_universal_led_set_pixel(leds, led_pos,  color_data->data[count_pos++]);
+        }
+    }
 }
 
 tools_rgb_data mgos_universal_led_get_from_pos(mgos_rgbleds* leds, int x, int y, char* out, int len)

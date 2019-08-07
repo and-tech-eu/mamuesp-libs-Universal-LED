@@ -146,6 +146,7 @@ void mgos_universal_led_scale_bitmap(mgos_rgbleds* leds);
 tools_rgb_data mgos_universal_led_lookup_gamma(mgos_rgbleds* leds, tools_rgb_data pix);
 
 void mgos_universal_led_plot_pixel(mgos_rgbleds* leds, int x, int y, tools_rgb_data color, bool invert_toggle_odd);
+void mgos_universal_led_plot_pixel_direct(mgos_rgbleds* leds, int x, int y, tools_rgb_data color, bool invert_toggle_odd);
 void mgos_universal_led_plot_all(mgos_rgbleds* leds, tools_rgb_data pix_col);
 void mgos_universal_led_line(mgos_rgbleds* leds, int x1, int y1, int x2, int y2, tools_rgb_data color);
 void mgos_universal_led_ellipse(mgos_rgbleds* leds, int origin_x, int origin_y, int width, int height, tools_rgb_data color);
@@ -176,6 +177,8 @@ void mgos_universal_led_unset(mgos_rgbleds* leds, int pix);
  */
 tools_rgb_data mgos_universal_led_get(mgos_rgbleds* leds, int i, char* out, int len);
 tools_rgb_data mgos_universal_led_get_from_pos(mgos_rgbleds* leds, int x, int y, char* out, int len);
+tools_rgb_array *mgos_universal_led_get_from_area(tools_rgb_array *result, mgos_rgbleds* leds, int start_x, int start_y, int width, int height);
+void mgos_universal_led_set_to_area(mgos_rgbleds* leds, tools_rgb_array* color_data, int start_x, int start_y, int width, int height);
 
 /*
  * Clear in-memory values of the pixels.
